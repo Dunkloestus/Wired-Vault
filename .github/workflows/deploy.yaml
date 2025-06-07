@@ -1,39 +1,73 @@
-name: Deploy to GitHub Pages
+name: Deploy Wired Vault to GitHub Pages
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    runs-on: ubuntu-20.04
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
-
-      - name: Build Link Index
-        uses: jackyzha0/hugo-obsidian@v2.18
-        with:
-          index: true
-          input: content
-          output: assets/indices
-          root: .
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-          hugo-version: '0.96.0'
+          hugo-version: 'latest'
           extended: true
 
-      - name: Build
-        run: hugo --minify
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Setup Go
+        uses: actions/setup-go@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          publish_branch: deploy  # deploying branch
-          cname: amethyst.bencuan.me
+          go-version: '1.21'
+
+      - name: Install hugo-obsidian
+        run: go install github.com/jackyzha0/hugo-obsidian@latest
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v3
+
+      - name: Build Link Index
+        run: |
+          hugo-obsidian -input=content -output=assets/indices -index -root=.
+
+      - name: Build with Hugo
+        env:
+          HUGO_ENVIRONMENT: production
+          HUGO_ENV: production
+        run: |
+          hugo \
+            --gc \
+            --minify \
+            --baseURL "${{ steps.pages.outputs.base_url }}/"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: ./public
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v2
